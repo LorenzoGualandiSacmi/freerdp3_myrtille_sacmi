@@ -26,6 +26,8 @@
 #include <winpr/ssl.h>
 #include <winpr/thread.h>
 #include <winpr/crypto.h>
+#include <winpr/library.h>
+#include <winpr/string.h>
 
 #ifdef WITH_OPENSSL
 
@@ -45,6 +47,37 @@ static BOOL g_winpr_openssl_initialized_by_winpr = FALSE;
 static OSSL_PROVIDER* s_winpr_openssl_provider_fips = nullptr;
 static OSSL_PROVIDER* s_winpr_openssl_provider_legacy = nullptr;
 static OSSL_PROVIDER* s_winpr_openssl_provider_default = nullptr;
+
+#ifdef _WIN32
+/* Portable Myrtille packages keep providers beside libcrypto, not in the
+ * absolute installation directory compiled into the vcpkg OpenSSL DLL. */
+static OSSL_PROVIDER* winpr_load_adjacent_legacy_provider(void)
+{
+	HMODULE module = nullptr;
+	WCHAR path[32768];
+	const WCHAR filename[] = L"legacy.dll";
+	if (GetEnvironmentVariableW(L"OPENSSL_MODULES", nullptr, 0) != 0)
+		return nullptr;
+	if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+	                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+	                       (LPCWSTR)(ULONG_PTR)OSSL_PROVIDER_load, &module))
+		return nullptr;
+	const DWORD length = GetModuleFileNameW(module, path, ARRAYSIZE(path));
+	if ((length == 0) || (length >= ARRAYSIZE(path)))
+		return nullptr;
+	WCHAR* slash = wcsrchr(path, L'\\');
+	if (!slash || ((size_t)(slash + 1 - path) + ARRAYSIZE(filename) > ARRAYSIZE(path)))
+		return nullptr;
+	memcpy(slash + 1, filename, sizeof(filename));
+	char* utf8 = ConvertWCharToUtf8Alloc(path, nullptr);
+	if (!utf8)
+		return nullptr;
+	ERR_clear_error();
+	OSSL_PROVIDER* provider = OSSL_PROVIDER_load(nullptr, utf8);
+	free(utf8);
+	return provider;
+}
+#endif
 #endif
 
 /**
@@ -328,6 +361,10 @@ static BOOL CALLBACK winpr_openssl_initialize(WINPR_ATTR_UNUSED PINIT_ONCE once,
 #if defined(OPENSSL_VERSION_MAJOR) && (OPENSSL_VERSION_MAJOR >= 3)
 	/* The legacy provider is needed for MD4. */
 	s_winpr_openssl_provider_legacy = OSSL_PROVIDER_load(nullptr, "legacy");
+#ifdef _WIN32
+	if (!s_winpr_openssl_provider_legacy)
+		s_winpr_openssl_provider_legacy = winpr_load_adjacent_legacy_provider();
+#endif
 	if (s_winpr_openssl_provider_legacy == nullptr)
 	{
 		WLog_WARN(TAG, "OpenSSL LEGACY provider failed to load, no md4 support available!");

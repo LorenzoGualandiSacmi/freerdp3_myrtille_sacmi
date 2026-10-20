@@ -43,6 +43,7 @@
 #include <strsafe.h>
 
 #include "wf_cliprdr.h"
+#include "wf_myrtille.h"
 
 #define TAG CLIENT_TAG("windows")
 
@@ -1808,6 +1809,8 @@ static UINT wf_cliprdr_send_client_capabilities(wfClipboard* clipboard)
 	generalCapabilitySet.version = CB_CAPS_VERSION_2;
 	generalCapabilitySet.generalFlags =
 	    CB_USE_LONG_FORMAT_NAMES | CB_STREAM_FILECLIP_ENABLED | CB_FILECLIP_NO_FILE_PATHS;
+	if (clipboard->context->rdpcontext->settings->MyrtilleSessionId)
+		generalCapabilitySet.generalFlags = CB_USE_LONG_FORMAT_NAMES;
 	return clipboard->context->ClientCapabilities(clipboard->context, &capabilities);
 }
 
@@ -1831,6 +1834,14 @@ static UINT wf_cliprdr_monitor_ready(CliprdrClientContext* context,
 	if (rc != CHANNEL_RC_OK)
 		return rc;
 
+	if (context->rdpcontext->settings->MyrtilleSessionId)
+    {
+        CLIPRDR_FORMAT format = { CF_UNICODETEXT, nullptr };
+        CLIPRDR_FORMAT_LIST list = WINPR_C_ARRAY_INIT;
+        list.numFormats = 1;
+        list.formats = &format;
+        return context->ClientFormatList(context, &list);
+    }
 	return cliprdr_send_format_list(clipboard);
 }
 
@@ -1873,6 +1884,23 @@ static UINT wf_cliprdr_server_capabilities(CliprdrClientContext* context,
 static UINT wf_cliprdr_server_format_list(CliprdrClientContext* context,
                                           const CLIPRDR_FORMAT_LIST* formatList)
 {
+    if (context->rdpcontext->settings->MyrtilleSessionId)
+    {
+        CLIPRDR_FORMAT_LIST_RESPONSE response = WINPR_C_ARRAY_INIT;
+        response.common.msgFlags = CB_RESPONSE_OK;
+        UINT rc = context->ClientFormatListResponse(context, &response);
+        if (rc != CHANNEL_RC_OK) return rc;
+        for (UINT32 i = 0; i < formatList->numFormats; i++)
+        {
+            if (formatList->formats[i].formatId == CF_UNICODETEXT)
+            {
+                wf_myrtille_read_server_clipboard((wfContext*)context->rdpcontext);
+                break;
+            }
+        }
+        return CHANNEL_RC_OK;
+    }
+
 	UINT rc = ERROR_INTERNAL_ERROR;
 	formatMapping* mapping;
 	CLIPRDR_FORMAT* format;
@@ -2147,6 +2175,23 @@ static UINT
 wf_cliprdr_server_format_data_request(CliprdrClientContext* context,
                                       const CLIPRDR_FORMAT_DATA_REQUEST* formatDataRequest)
 {
+    if (context->rdpcontext->settings->MyrtilleSessionId)
+    {
+        const wchar_t* text = nullptr;
+        size_t bytes = 0;
+        CLIPRDR_FORMAT_DATA_RESPONSE response = WINPR_C_ARRAY_INIT;
+        response.common.msgFlags = CB_RESPONSE_FAIL;
+        if (formatDataRequest->requestedFormatId == CF_UNICODETEXT)
+        {
+            wf_myrtille_read_client_clipboard((wfContext*)context->rdpcontext, &text, &bytes);
+            if (bytes > UINT32_MAX) return ERROR_INVALID_DATA;
+            response.common.msgFlags = CB_RESPONSE_OK;
+            response.common.dataLen = (UINT32)bytes;
+            response.requestedFormatData = (const BYTE*)text;
+        }
+        return context->ClientFormatDataResponse(context, &response);
+    }
+
 	if (!context || !formatDataRequest)
 		return ERROR_INTERNAL_ERROR;
 
@@ -2203,6 +2248,14 @@ static UINT
 wf_cliprdr_server_format_data_response(CliprdrClientContext* context,
                                        const CLIPRDR_FORMAT_DATA_RESPONSE* formatDataResponse)
 {
+    if (context->rdpcontext->settings->MyrtilleSessionId)
+    {
+        if (formatDataResponse->common.msgFlags == CB_RESPONSE_OK && formatDataResponse->common.dataLen >= sizeof(wchar_t))
+            wf_myrtille_send_server_clipboard((wfContext*)context->rdpcontext,
+                (BYTE*)formatDataResponse->requestedFormatData, formatDataResponse->common.dataLen);
+        return CHANNEL_RC_OK;
+    }
+
 	BYTE* data;
 	HANDLE hMem;
 	wfClipboard* clipboard;
@@ -2279,6 +2332,13 @@ wf_cliprdr_server_file_contents_request(CliprdrClientContext* context,
 
 	if (!context || !fileContentsRequest)
 		return ERROR_INTERNAL_ERROR;
+	if (context->rdpcontext->settings->MyrtilleSessionId)
+	{
+		CLIPRDR_FILE_CONTENTS_RESPONSE response = WINPR_C_ARRAY_INIT;
+		response.common.msgFlags = CB_RESPONSE_FAIL;
+		response.streamId = fileContentsRequest->streamId;
+		return context->ClientFileContentsResponse(context, &response);
+	}
 
 	clipboard = (wfClipboard*)context->custom;
 
@@ -2512,6 +2572,8 @@ BOOL wf_cliprdr_init(wfContext* wfc, CliprdrClientContext* cliprdr)
 	if (!(clipboard->req_fevent = CreateEvent(nullptr, TRUE, FALSE, nullptr)))
 		goto error;
 
+	wfc->cliprdr = cliprdr;
+	if (!context->settings->MyrtilleSessionId)
 	if (!(clipboard->thread = CreateThread(nullptr, 0, cliprdr_thread_func, clipboard, 0, nullptr)))
 		goto error;
 

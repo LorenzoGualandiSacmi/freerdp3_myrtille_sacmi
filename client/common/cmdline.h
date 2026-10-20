@@ -5,6 +5,10 @@
  * Copyright 2018 Bernhard Miklautz <bernhard.miklautz@thincast.com>
  * Copyright 2018 Thincast Technologies GmbH
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright(c) 2014-2021 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -61,6 +65,8 @@ static const COMMAND_LINE_ARGUMENT_A global_cmd_args[] = {
 	  "Automatically request remote assistance input control" },
 	{ "async-channels", COMMAND_LINE_VALUE_BOOL, nullptr, BoolValueFalse, nullptr, -1, nullptr,
 	  "Asynchronous channels (experimental)" },
+	{ "async-input", COMMAND_LINE_VALUE_BOOL, nullptr, BoolValueFalse, nullptr, -1, nullptr,
+	  "Myrtille compatibility option; the legacy input queue was removed in FreeRDP 3" },
 	{ "async-update", COMMAND_LINE_VALUE_BOOL, nullptr, BoolValueFalse, nullptr, -1, nullptr,
 	  "Asynchronous update" },
 	{ "audio-mode", COMMAND_LINE_VALUE_REQUIRED, "[[none|2]|[server|1]|[redirect|0]]", nullptr,
@@ -562,6 +568,9 @@ static const COMMAND_LINE_ARGUMENT_A global_cmd_args[] = {
 	  nullptr, "window position" },
 	{ "wm-class", COMMAND_LINE_VALUE_REQUIRED, "<class-name>", nullptr, nullptr, -1, nullptr,
 	  "Set the WM_CLASS hint for the window instance" },
+	{ "myrtille-sid", COMMAND_LINE_VALUE_REQUIRED, "<id>", nullptr, nullptr, -1, nullptr, "Myrtille session identifier" },
+	{ "myrtille-window", COMMAND_LINE_VALUE_BOOL, nullptr, nullptr, nullptr, -1, nullptr, "Show Myrtille native window" },
+	{ "myrtille-log", COMMAND_LINE_VALUE_BOOL, nullptr, nullptr, nullptr, -1, nullptr, "Enable Myrtille logging" },
 	{ "workarea", COMMAND_LINE_VALUE_FLAG, nullptr, nullptr, nullptr, -1, nullptr,
 	  "Use available work area" },
 	{ nullptr, 0, nullptr, nullptr, nullptr, -1, nullptr, nullptr }

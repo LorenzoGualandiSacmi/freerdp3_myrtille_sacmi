@@ -389,6 +389,12 @@ BOOL freerdp_settings_get_bool(WINPR_ATTR_UNUSED const rdpSettings* settings,
 		case FreeRDP_MultiTouchInput:
 			return settings->MultiTouchInput;
 
+		case FreeRDP_MyrtilleDebugLog:
+			return settings->MyrtilleDebugLog;
+
+		case FreeRDP_MyrtilleShowWindow:
+			return settings->MyrtilleShowWindow;
+
 		case FreeRDP_NSCodec:
 			return settings->NSCodec;
 
@@ -1111,6 +1117,14 @@ BOOL freerdp_settings_set_bool(WINPR_ATTR_UNUSED rdpSettings* settings,
 
 		case FreeRDP_MultiTouchInput:
 			settings->MultiTouchInput = cnv.c;
+			break;
+
+		case FreeRDP_MyrtilleDebugLog:
+			settings->MyrtilleDebugLog = cnv.c;
+			break;
+
+		case FreeRDP_MyrtilleShowWindow:
+			settings->MyrtilleShowWindow = cnv.c;
 			break;
 
 		case FreeRDP_NSCodec:
@@ -2943,6 +2957,9 @@ const char* freerdp_settings_get_string(WINPR_ATTR_UNUSED const rdpSettings* set
 		case FreeRDP_KeyboardRemappingList:
 			return settings->KeyboardRemappingList;
 
+		case FreeRDP_MyrtilleSessionId:
+			return settings->MyrtilleSessionId;
+
 		case FreeRDP_NtlmSamFile:
 			return settings->NtlmSamFile;
 
@@ -3283,6 +3300,9 @@ char* freerdp_settings_get_string_writable(rdpSettings* settings, FreeRDP_Settin
 
 		case FreeRDP_KeyboardRemappingList:
 			return settings->KeyboardRemappingList;
+
+		case FreeRDP_MyrtilleSessionId:
+			return settings->MyrtilleSessionId;
 
 		case FreeRDP_NtlmSamFile:
 			return settings->NtlmSamFile;
@@ -3636,6 +3656,9 @@ BOOL freerdp_settings_set_string_(WINPR_ATTR_UNUSED rdpSettings* settings,
 
 		case FreeRDP_KeyboardRemappingList:
 			return update_string_(&settings->KeyboardRemappingList, cnv.c, len);
+
+		case FreeRDP_MyrtilleSessionId:
+			return update_string_(&settings->MyrtilleSessionId, cnv.c, len);
 
 		case FreeRDP_NtlmSamFile:
 			return update_string_(&settings->NtlmSamFile, cnv.c, len);
@@ -4008,6 +4031,9 @@ BOOL freerdp_settings_set_string_copy_(WINPR_ATTR_UNUSED rdpSettings* settings,
 
 		case FreeRDP_KeyboardRemappingList:
 			return update_string_copy_(&settings->KeyboardRemappingList, cnv.cc, len, cleanup);
+
+		case FreeRDP_MyrtilleSessionId:
+			return update_string_copy_(&settings->MyrtilleSessionId, cnv.cc, len, cleanup);
 
 		case FreeRDP_NtlmSamFile:
 			return update_string_copy_(&settings->NtlmSamFile, cnv.cc, len, cleanup);

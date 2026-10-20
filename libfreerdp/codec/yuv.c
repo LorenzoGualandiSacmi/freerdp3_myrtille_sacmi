@@ -604,6 +604,45 @@ BOOL yuv444_context_decode(YUV_CONTEXT* WINPR_RESTRICT context, BYTE type,
 		WLog_ERR(TAG, "YUV context set up for encoding, can not decode with it, aborting");
 		return FALSE;
 	}
+	/* A region is a presentation mask, not a chroma reconstruction boundary.
+	 * Keep the threaded fast path for aligned updates. For partial macroblocks,
+	 * reconstruct and convert the enclosing block before copying the mask. */
+	for (UINT32 i = 0; i < numRegionRects; i++)
+	{
+		const RECTANGLE_16* mask = &regionRects[i];
+		if ((mask->left | mask->top | mask->right | mask->bottom) & 15)
+		{
+			const UINT32 bpp = FreeRDPGetBytesPerPixel(DstFormat);
+			for (UINT32 j = 0; j < numRegionRects; j++)
+			{
+				const RECTANGLE_16* r = &regionRects[j];
+				if (!check_rect(context, r, context->width, context->height))
+					return FALSE;
+				RECTANGLE_16 block = { r->left & ~15U, r->top & ~15U,
+					MIN((r->right + 15U) & ~15U, context->width),
+					MIN((r->bottom + 15U) & ~15U, context->height) };
+				const UINT32 width = block.right - block.left;
+				const UINT32 height = block.bottom - block.top;
+				if (!width || !height) continue;
+				BYTE* rgb = calloc((size_t)width * height, bpp);
+				if (!rgb) return FALSE;
+				BOOL ok = pool_decode_rect(context, type, pYUVData, iStride, pYUVDstData,
+				                           iDstStride, &block, 1);
+				const BYTE* planes[3];
+				for (size_t p = 0; p < 3; p++)
+					planes[p] = pYUVDstData[p] + (size_t)block.top * iDstStride[p] + block.left;
+				const RECTANGLE_16 local = { 0, 0, width, height };
+				if (ok) ok = avc444_yuv_to_rgb(planes, iDstStride, &local, width * bpp, rgb, DstFormat);
+				if (ok) for (UINT32 y = r->top; y < r->bottom; y++)
+					memcpy(dest + (size_t)y * nDstStep + (size_t)r->left * bpp,
+					       rgb + ((size_t)(y - block.top) * width + r->left - block.left) * bpp,
+					       (size_t)(r->right - r->left) * bpp);
+				free(rgb);
+				if (!ok) return FALSE;
+			}
+			return TRUE;
+		}
+	}
 	if (!pool_decode_rect(context, type, pYUVData, iStride, pYUVDstData, iDstStride, regionRects,
 	                      numRegionRects))
 		return FALSE;

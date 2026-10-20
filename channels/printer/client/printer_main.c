@@ -8,6 +8,10 @@
  * Copyright 2016 Armin Novak <armin.novak@gmail.com>
  * Copyright 2016 David PHAM-VAN <d.phamvan@inuvika.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright(c) 2014-2021 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -1012,6 +1016,7 @@ static UINT printer_register(PDEVICE_SERVICE_ENTRY_POINTS pEntryPoints, rdpPrint
 	printer_dev->device.CustomComponentRequest = printer_custom_component;
 	printer_dev->device.Free = printer_free;
 	printer_dev->rdpcontext = pEntryPoints->rdpcontext;
+	printer->rdpcontext = pEntryPoints->rdpcontext;
 	printer_dev->printer = printer;
 
 	if (!freerdp_settings_get_bool(pEntryPoints->rdpcontext->settings,

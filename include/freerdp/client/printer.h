@@ -77,7 +77,8 @@ extern "C"
 		ALIGN64 WINPR_ATTR_NODISCARD pcFindPrintJob FindPrintJob;
 		ALIGN64 pcReferencePrinter AddRef;
 		ALIGN64 pcReferencePrinter ReleaseRef;
-		UINT64 reserved[54];
+		ALIGN64 rdpContext* rdpcontext; /* Myrtille PDF completion callback */
+		UINT64 reserved[53];
 	};
 
 	typedef UINT (*pcWritePrintJob)(rdpPrintJob* printjob, const BYTE* data, size_t size);

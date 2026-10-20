@@ -3,6 +3,10 @@
 #
 # Copyright 2012 Marc-Andre Moreau <marcandre.moreau@gmail.com>
 #
+# Myrtille: A native HTML4/5 Remote Desktop Protocol client
+#
+# Copyright(c) 2014-2017 Cedric Coste
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -16,12 +20,15 @@
 # limitations under the License.
 
 set(MODULE_NAME "wfreerdp-client")
+enable_language(CXX)
 set(MODULE_PREFIX "FREERDP_CLIENT_WINDOWS_CONTROL")
 
 include(WarnUnmaintained)
 warn_unmaintained(${MODULE_NAME} "-DWITH_CLIENT_WINDOWS=OFF")
 
 set(${MODULE_PREFIX}_SRCS
+    wf_myrtille.cpp
+    wf_myrtille.h
     wf_gdi.c
     wf_gdi.h
     wf_event.c
@@ -74,7 +81,8 @@ target_include_directories(${MODULE_NAME} INTERFACE $<INSTALL_INTERFACE:include>
 list(APPEND PUB_LIBS freerdp-client)
 list(APPEND PUB_LIBS winpr freerdp)
 
-list(APPEND PRIV_LIBS msimg32.lib credui.lib)
+find_package(WebP CONFIG REQUIRED)
+list(APPEND PRIV_LIBS msimg32.lib credui.lib gdiplus.lib WebP::webp)
 
 if(MINGW)
   list(APPEND PRIV_LIBS ntdll.lib) # only required with MINGW
@@ -88,5 +96,22 @@ if(WITH_CLIENT_INTERFACE)
   )
 endif()
 add_subdirectory(cli)
+
+add_executable(myrtille-settings-test test_myrtille_settings.c)
+target_link_libraries(myrtille-settings-test PRIVATE freerdp-client freerdp winpr)
+
+add_executable(myrtille-avc-probe EXCLUDE_FROM_ALL
+  ../../tests/probe-avc-routing.c
+  ../../channels/rdpgfx/client/rdpgfx_codec.c
+  ../../channels/rdpgfx/rdpgfx_common.c)
+target_include_directories(myrtille-avc-probe PRIVATE
+  ../../channels/rdpgfx/client ../../channels/rdpgfx)
+target_link_libraries(myrtille-avc-probe PRIVATE freerdp winpr)
+
+add_executable(myrtille-avc444-fixture EXCLUDE_FROM_ALL
+  ../../tests/avc444-fixture.c ../../channels/rdpgfx/client/rdpgfx_codec.c
+  ../../channels/rdpgfx/rdpgfx_common.c)
+target_include_directories(myrtille-avc444-fixture PRIVATE ../../channels/rdpgfx/client ../../channels/rdpgfx)
+target_link_libraries(myrtille-avc444-fixture PRIVATE freerdp winpr)
 
 set_property(TARGET ${MODULE_NAME} PROPERTY FOLDER "Client/Windows")

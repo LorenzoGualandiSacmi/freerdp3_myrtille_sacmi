@@ -809,6 +809,24 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 		return ERROR_INVALID_DATA;
 
 	bs = (RDPGFX_AVC444_BITMAP_STREAM*)cmd->extra;
+	const char* diagnosticPath = getenv("MYRTILLE_RENDER_DIAGNOSTICS");
+	if (diagnosticPath)
+	{
+		static LONG samples = 0;
+		if (InterlockedIncrement(&samples) <= 16)
+		{
+			FILE* diagnostic = fopen(diagnosticPath, "a");
+			if (diagnostic)
+			{
+				fprintf(diagnostic, "pid=%lu avc codec=%u surface=%u size=%ux%u mapped=%ux%u target=%ux%u format=%s stride=%u LC=%u\n",
+				        GetCurrentProcessId(), cmd->codecId, cmd->surfaceId, surface->width,
+				        surface->height, surface->mappedWidth, surface->mappedHeight,
+				        surface->outputTargetWidth, surface->outputTargetHeight,
+				        FreeRDPGetColorFormatName(surface->format), surface->scanline, bs ? bs->LC : 255);
+				fclose(diagnostic);
+			}
+		}
+	}
 
 	if (!bs)
 		return ERROR_INTERNAL_ERROR;

@@ -6,6 +6,10 @@
  * Copyright 2010-2011 Vic Lee
  * Copyright 2010-2011 Marc-Andre Moreau <marcandre.moreau@gmail.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright(c) 2014-2021 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -65,6 +69,8 @@
 
 #include "resource/resource.h"
 
+#include "wf_myrtille.h"
+#include "wf_myrtille_video.h"
 #define TAG CLIENT_TAG("windows")
 
 #define WM_FREERDP_SHOWWINDOW (WM_USER + 100)
@@ -136,6 +142,29 @@ static BOOL wf_end_paint(rdpContext* context)
 		updateRect.right = extents->right;
 		updateRect.bottom = extents->bottom;
 
+		wf_myrtille_send_region(wfc, updateRect);
+		/* Opt-in, bounded rendering diagnostics: metadata only, no desktop dump. */
+		const char* diagnosticPath = getenv("MYRTILLE_RENDER_DIAGNOSTICS");
+		if (diagnosticPath)
+		{
+			static LONG samples = 0;
+			if (InterlockedIncrement(&samples) <= 16)
+			{
+				FILE* diagnostic = fopen(diagnosticPath, "a");
+				if (diagnostic)
+				{
+					DIBSECTION dib = { 0 };
+					GetObject(wfc->primary->bitmap, sizeof(dib), &dib);
+					fprintf(diagnostic, "pid=%lu primary format=%s size=%dx%d stride=%u DIB=%ldx%ld bpp=%u stride=%ld shared=%d rect=%ld,%ld,%ld,%ld\n",
+					        GetCurrentProcessId(), FreeRDPGetColorFormatName(gdi->dstFormat),
+					        gdi->width, gdi->height, gdi->stride, dib.dsBm.bmWidth, dib.dsBm.bmHeight,
+					        dib.dsBm.bmBitsPixel, dib.dsBm.bmWidthBytes,
+					        dib.dsBm.bmBits == gdi->primary_buffer,
+					        updateRect.left, updateRect.top, updateRect.right, updateRect.bottom);
+					fclose(diagnostic);
+				}
+			}
+		}
 		wf_scale_rect(wfc, &updateRect);
 
 		InvalidateRect(wfc->hwnd, &updateRect, FALSE);
@@ -158,7 +187,8 @@ static BOOL wf_end_paint(rdpContext* context)
 		}
 #endif
 
-		PostMessage(wfc->hwnd, WM_FREERDP_SHOWWINDOW, 0, 0);
+		if (!context->settings->MyrtilleSessionId || context->settings->MyrtilleShowWindow)
+			PostMessage(wfc->hwnd, WM_FREERDP_SHOWWINDOW, 0, 0);
 		WLog_INFO(TAG, "Window is shown!");
 	}
 	return TRUE;
@@ -222,8 +252,23 @@ static BOOL wf_desktop_resize(rdpContext* context)
 	else
 	{
 		wf_update_offset(wfc);
+
+		#pragma region Myrtille
+
+		// TODO: pull request to FreeRDP master
+		if (wfc->hwnd)
+		{
+
+		#pragma endregion
+
 		GetWindowRect(wfc->hwnd, &rect);
 		InvalidateRect(wfc->hwnd, &rect, TRUE);
+
+		#pragma region Myrtille
+
+		}
+
+		#pragma endregion
 	}
 
 	return TRUE;
@@ -238,6 +283,9 @@ static BOOL wf_pre_connect(freerdp* instance)
 	rdpContext* context = instance->context;
 	wfContext* wfc = (wfContext*)instance->context;
 	rdpSettings* settings = context->settings;
+	/* Opt-in browser AVC420 experiment. Keep legacy/non-Myrtille clients unchanged. */
+	if (!wf_myrtille_configure_video(settings, getenv("MYRTILLE_AVC420")))
+		return FALSE;
 	if (!freerdp_settings_set_uint32(settings, FreeRDP_OsMajorType, OSMAJORTYPE_WINDOWS))
 		return FALSE;
 	if (!freerdp_settings_set_uint32(settings, FreeRDP_OsMinorType, OSMINORTYPE_WINDOWS_NT))
@@ -486,7 +534,7 @@ static BOOL wf_post_connect(freerdp* instance)
 		return FALSE;
 
 #ifdef WITH_PROGRESS_BAR
-	if (wfc->taskBarList)
+	if (wfc->taskBarList && (!settings->MyrtilleSessionId || settings->MyrtilleShowWindow))
 	{
 		ShowWindow(wfc->hwnd, SW_SHOWMINIMIZED);
 		wfc->taskBarList->lpVtbl->SetProgressState(wfc->taskBarList, wfc->hwnd, TBPF_INDETERMINATE);
@@ -499,10 +547,12 @@ static BOOL wf_post_connect(freerdp* instance)
 	context->update->SetKeyboardIndicators = wf_keyboard_set_indicators;
 	wf_register_pointer(context->graphics);
 
-	wfc->floatbar = wf_floatbar_new(wfc, wfc->hInstance,
+	if (!settings->MyrtilleSessionId || settings->MyrtilleShowWindow)
+		wfc->floatbar = wf_floatbar_new(wfc, wfc->hInstance,
 	                                freerdp_settings_get_uint32(settings, FreeRDP_Floatbar));
 
-	wf_event_focus_in(wfc);
+	if (!settings->MyrtilleSessionId)
+		wf_event_focus_in(wfc);
 
 	return TRUE;
 }
@@ -550,6 +600,8 @@ static BOOL wf_authenticate_ex(freerdp* instance, char** username, char** passwo
 	if (freerdp_settings_get_bool(instance->context->settings, FreeRDP_CredentialsFromStdin))
 		return client_cli_authenticate_ex(instance, username, password, domain, reason);
 
+	if (instance->context->settings->MyrtilleSessionId && !instance->context->settings->MyrtilleShowWindow)
+		return username && *username && password && *password;
 	const WCHAR auth[] = L"Target credentials requested";
 	const WCHAR authPin[] = L"PIN requested";
 	const WCHAR gwAuth[] = L"Gateway credentials requested";
@@ -1061,7 +1113,7 @@ static BOOL wf_present_gateway_message(freerdp* instance, UINT32 type, BOOL isDi
 	return TRUE;
 }
 
-static DWORD WINAPI wf_client_thread(LPVOID lpParam)
+DWORD WINAPI wf_client_thread(LPVOID lpParam)
 {
 	MSG msg = WINPR_C_ARRAY_INIT;
 	int width = 0;
@@ -1073,13 +1125,18 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 	freerdp* instance = (freerdp*)lpParam;
 	WINPR_ASSERT(instance);
 
+	rdpContext* context = instance->context;
+	wfContext* wfc = (wfContext*)context;
 	if (!freerdp_connect(instance))
 		goto end;
+	if (context->settings->MyrtilleSessionId)
+	{
+		wf_myrtille_send_message(wfc, L"connected");
+		wf_myrtille_send_screen(wfc, false);
+	}
 
-	rdpContext* context = instance->context;
 	WINPR_ASSERT(context);
 
-	wfContext* wfc = (wfContext*)instance->context;
 	WINPR_ASSERT(wfc);
 
 	rdpChannels* channels = context->channels;
@@ -1093,7 +1150,7 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 		HANDLE handles[MAXIMUM_WAIT_OBJECTS] = WINPR_C_ARRAY_INIT;
 		DWORD nCount = 0;
 
-		if (freerdp_focus_required(instance))
+		if (!settings->MyrtilleSessionId && freerdp_focus_required(instance))
 		{
 			wf_event_focus_in(wfc);
 			wf_event_focus_in(wfc);
@@ -1162,7 +1219,7 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 				}
 				case WM_FREERDP_SHOWWINDOW:
 				{
-					ShowWindow(wfc->hwnd, SW_NORMAL);
+					ShowWindow(wfc->hwnd, settings->MyrtilleSessionId ? SW_SHOWNOACTIVATE : SW_NORMAL);
 					if (wfc->floatbar)
 					{
 						wf_floatbar_reset_position(wfc->floatbar);
@@ -1191,6 +1248,8 @@ static DWORD WINAPI wf_client_thread(LPVOID lpParam)
 	freerdp_disconnect(instance);
 
 end:
+	if (context->settings->MyrtilleSessionId)
+		wf_myrtille_stop(wfc);
 	error = freerdp_get_last_error(instance->context);
 	WLog_DBG(TAG, "Main thread exited with %" PRIu32, error);
 	ExitThread(error);
@@ -1540,14 +1599,21 @@ static int wfreerdp_client_start(rdpContext* context)
 	wfc->wndClass.hIcon = wfc->icon;
 	wfc->wndClass.hIconSm = wfc->icon;
 	RegisterClassEx(&(wfc->wndClass));
-	wfc->keyboardThread =
-	    CreateThread(nullptr, 0, wf_keyboard_thread, (void*)wfc, 0, &wfc->keyboardThreadId);
+	if (!settings->MyrtilleSessionId || settings->MyrtilleShowWindow)
+	{
+		wfc->keyboardThread =
+		    CreateThread(nullptr, 0, wf_keyboard_thread, (void*)wfc, 0, &wfc->keyboardThreadId);
+		if (!wfc->keyboardThread)
+			return -1;
+	}
 
-	if (!wfc->keyboardThread)
-		return -1;
-
-	wfc->common.thread =
-	    CreateThread(nullptr, 0, wf_client_thread, (void*)instance, 0, &wfc->mainThreadId);
+	if (settings->MyrtilleSessionId)
+	{
+		wf_myrtille_start(wfc);
+		wfc->common.thread = wf_myrtille_connect(wfc);
+	}
+	else
+		wfc->common.thread = CreateThread(nullptr, 0, wf_client_thread, (void*)instance, 0, &wfc->mainThreadId);
 
 	if (!wfc->common.thread)
 		return -1;
@@ -1574,8 +1640,39 @@ static int wfreerdp_client_stop(rdpContext* context)
 		wfc->keyboardThreadId = 0;
 	}
 
+	#pragma region Myrtille
+
+	if (context->settings->MyrtilleSessionId != NULL)
+	{
+		wf_myrtille_stop(wfc);
+	}
+
+	#pragma endregion
+
 	return 0;
 }
+
+#pragma region Myrtille
+
+static void wfreerdp_client_print(rdpContext* context, wchar_t* printJobName)
+{
+	wfContext* wfc = (wfContext*)context;
+	wf_myrtille_send_printjob(wfc, printJobName);
+}
+
+static void wfreerdp_client_audio(rdpContext* context, const BYTE* data, size_t size)
+{
+	wfContext* wfc = (wfContext*)context;
+	wf_myrtille_send_audio(wfc, data, size);
+}
+
+static void wfreerdp_client_video(rdpContext* context, const BYTE* data, size_t size)
+{
+	wfContext* wfc = (wfContext*)context;
+	wf_myrtille_send_video(wfc, data, size);
+}
+
+#pragma endregion
 
 int RdpClientEntry(RDP_CLIENT_ENTRY_POINTS* pEntryPoints)
 {
@@ -1588,5 +1685,126 @@ int RdpClientEntry(RDP_CLIENT_ENTRY_POINTS* pEntryPoints)
 	pEntryPoints->ClientFree = wfreerdp_client_free;
 	pEntryPoints->ClientStart = wfreerdp_client_start;
 	pEntryPoints->ClientStop = wfreerdp_client_stop;
+
+	#pragma region Myrtille
+
+	pEntryPoints->ClientPrint = wfreerdp_client_print;
+	pEntryPoints->ClientAudio = wfreerdp_client_audio;
+	pEntryPoints->ClientVideo = wfreerdp_client_video;
+
+	#pragma endregion
+
 	return 0;
 }
+
+#pragma region Myrtille
+
+INT WINAPI StartRdpClient()
+{
+	int status;
+	HANDLE thread;
+	wfContext* wfc;
+	DWORD dwExitCode;
+	rdpContext* context;
+	rdpSettings* settings;
+	LPWSTR cmd;
+	char** argv = NULL;
+	RDP_CLIENT_ENTRY_POINTS clientEntryPoints = { 0 };
+	int ret = 1;
+	int argc = 0, i;
+	LPWSTR* args = NULL;
+
+	//WINPR_UNUSED(hInstance);
+	//WINPR_UNUSED(hPrevInstance);
+	//WINPR_UNUSED(lpCmdLine);
+	//WINPR_UNUSED(nCmdShow);
+
+	#pragma region Myrtille
+
+	// if debugging, give time to attach debugger to process
+	//Sleep(10000);
+
+	#pragma endregion
+
+	RdpClientEntry(&clientEntryPoints);
+
+	context = freerdp_client_context_new(&clientEntryPoints);
+	if (!context)
+		return -1;
+
+	cmd = GetCommandLineW();
+
+	if (!cmd)
+		goto out;
+
+	args = CommandLineToArgvW(cmd, &argc);
+
+	if (!args || (argc <= 0))
+		goto out;
+
+	argv = calloc((size_t)argc, sizeof(char*));
+
+	if (!argv)
+		goto out;
+
+	for (i = 0; i < argc; i++)
+	{
+		int size = WideCharToMultiByte(CP_UTF8, 0, args[i], -1, NULL, 0, NULL, NULL);
+		if (size <= 0)
+			goto out;
+		argv[i] = calloc((size_t)size, sizeof(char));
+
+		if (!argv[i])
+			goto out;
+
+		if (WideCharToMultiByte(CP_UTF8, 0, args[i], -1, argv[i], size, NULL, NULL) != size)
+			goto out;
+	}
+
+	settings = context->settings;
+	wfc = (wfContext*)context;
+
+	if (!settings || !wfc)
+		goto out;
+
+	status = freerdp_client_settings_parse_command_line(settings, argc, argv, FALSE);
+
+	if (status)
+	{
+		freerdp_client_settings_command_line_status_print(settings, status, argc, argv);
+		goto out;
+	}
+
+	if (freerdp_client_start(context) != 0)
+		goto out;
+
+	thread = freerdp_client_get_thread(context);
+
+	if (thread)
+	{
+		if (WaitForSingleObject(thread, INFINITE) == WAIT_OBJECT_0)
+		{
+			GetExitCodeThread(thread, &dwExitCode);
+			ret = (int)dwExitCode;
+		}
+	}
+
+	if (freerdp_client_stop(context) != 0)
+		goto out;
+
+out:
+	freerdp_client_context_free(context);
+
+	if (argv)
+	{
+		for (i = 0; i < argc; i++)
+			free(argv[i]);
+
+		free(argv);
+	}
+
+	LocalFree(args);
+	return ret;
+}
+
+#pragma endregion

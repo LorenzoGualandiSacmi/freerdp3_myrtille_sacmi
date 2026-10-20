@@ -6,6 +6,10 @@
  * Copyright 2014 Norbert Federa <norbert.federa@thincast.com>
  * Copyright 2016 Armin Novak <armin.novak@gmail.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright(c) 2014-2021 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -5507,6 +5511,10 @@ static int parse_command_line(rdpSettings* settings, const COMMAND_LINE_ARGUMENT
 			if (!freerdp_settings_set_bool(settings, FreeRDP_AsyncUpdate, enable))
 				return fail_at(arg, COMMAND_LINE_ERROR);
 		}
+		CommandLineSwitchCase(arg, "async-input")
+		{
+			WLog_WARN(TAG, "async-input is ignored: the legacy input queue was removed in FreeRDP 3");
+		}
 		CommandLineSwitchCase(arg, "async-channels")
 		{
 			if (!freerdp_settings_set_bool(settings, FreeRDP_AsyncChannels, enable))
@@ -5640,6 +5648,21 @@ static int parse_command_line(rdpSettings* settings, const COMMAND_LINE_ARGUMENT
 			if (rc != 0)
 				return fail_at(arg, rc);
 		}
+		CommandLineSwitchCase(arg, "myrtille-sid")
+        {
+            if (!freerdp_settings_set_string(settings, FreeRDP_MyrtilleSessionId, arg->Value))
+                return COMMAND_LINE_ERROR_MEMORY;
+        }
+        CommandLineSwitchCase(arg, "myrtille-window")
+        {
+            if (!freerdp_settings_set_bool(settings, FreeRDP_MyrtilleShowWindow, arg->Value != nullptr))
+                return COMMAND_LINE_ERROR_MEMORY;
+        }
+        CommandLineSwitchCase(arg, "myrtille-log")
+        {
+            if (!freerdp_settings_set_bool(settings, FreeRDP_MyrtilleDebugLog, arg->Value != nullptr))
+                return COMMAND_LINE_ERROR_MEMORY;
+        }
 		CommandLineSwitchDefault(arg)
 		{
 #if defined(WITH_FREERDP_DEPRECATED_COMMANDLINE)

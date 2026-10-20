@@ -3,3 +3,6 @@
 build
 checker
 abi-checker
+.deps/
+build-*/
+artifacts/

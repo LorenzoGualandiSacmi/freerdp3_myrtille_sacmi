@@ -871,7 +871,10 @@ struct rdp_settings
 	SETTINGS_DEPRECATED(ALIGN64 UINT32 Floatbar);                /* 5196 */
 	SETTINGS_DEPRECATED(ALIGN64 UINT32 TcpConnectTimeout);       /* 5197 */
 	SETTINGS_DEPRECATED(ALIGN64 UINT32 FakeMouseMotionInterval); /* 5198 */
-	UINT64 padding5312[5312 - 5199];                             /* 5199 */
+	SETTINGS_DEPRECATED(ALIGN64 char* MyrtilleSessionId);        /* 5199 */
+	SETTINGS_DEPRECATED(ALIGN64 BOOL MyrtilleShowWindow);        /* 5200 */
+	SETTINGS_DEPRECATED(ALIGN64 BOOL MyrtilleDebugLog);          /* 5201 */
+	UINT64 padding5312[5312 - 5202];                             /* 5202 */
 
 	/**
 	 * WARNING: End of ABI stable zone!

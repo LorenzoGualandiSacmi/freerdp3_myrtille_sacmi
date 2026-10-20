@@ -8,6 +8,10 @@
  * Copyright 2015 DI (FH) Martin Haimberger <martin.haimberger@thincast.com>
  * Copyright 2016 David PHAM-VAN <d.phamvan@inuvika.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright(c) 2014-2021 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -22,6 +26,7 @@
  */
 
 #include <freerdp/config.h>
+#include <freerdp/client.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -129,6 +134,9 @@ static BOOL rdpsnd_winmm_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* fo
 	if (!rdpsnd_winmm_set_format(device, format, latency))
 		return FALSE;
 
+	if (freerdp_settings_get_string(freerdp_rdpsnd_get_context(device->rdpsnd)->settings, FreeRDP_MyrtilleSessionId))
+		return TRUE;
+
 	winmm->hThread = CreateThread(nullptr, 0, waveOutProc, winmm, 0, &winmm->threadId);
 	if (!winmm->hThread)
 	{
@@ -206,6 +214,8 @@ static BOOL rdpsnd_winmm_format_supported(rdpsndDevicePlugin* device, const AUDI
 	WINPR_UNUSED(device);
 	if (rdpsnd_winmm_convert_format(format, &out))
 	{
+		if (freerdp_settings_get_string(freerdp_rdpsnd_get_context(device->rdpsnd)->settings, FreeRDP_MyrtilleSessionId))
+			return TRUE;
 		result = waveOutOpen(nullptr, WAVE_MAPPER, &out, 0, 0, WAVE_FORMAT_QUERY);
 
 		if (result == MMSYSERR_NOERROR)
@@ -257,6 +267,13 @@ static UINT rdpsnd_winmm_play(rdpsndDevicePlugin* device, const BYTE* data, size
 	LPWAVEHDR lpWaveHdr;
 	rdpsndWinmmPlugin* winmm = (rdpsndWinmmPlugin*)device;
 
+	#pragma region Myrtille
+
+	if (!freerdp_settings_get_string(freerdp_rdpsnd_get_context(device->rdpsnd)->settings, FreeRDP_MyrtilleSessionId))
+	{
+
+	#pragma endregion
+
 	if (!winmm->hWaveOut)
 		return 0;
 
@@ -293,6 +310,18 @@ static UINT rdpsnd_winmm_play(rdpsndDevicePlugin* device, const BYTE* data, size
 	}
 
 	LeaveCriticalSection(&winmm->cs);
+
+	#pragma region Myrtille
+
+	}
+	else
+	{
+		RDP_CLIENT_ENTRY_POINTS* pEntryPoints = freerdp_rdpsnd_get_context(device->rdpsnd)->instance->pClientEntryPoints;
+		IFCALL(pEntryPoints->ClientAudio, freerdp_rdpsnd_get_context(device->rdpsnd), data, size);
+	}
+
+	#pragma endregion
+
 	return winmm->latency;
 failCS:
 	LeaveCriticalSection(&winmm->cs);
@@ -320,7 +349,8 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE winmm_freerdp_rdpsnd_client_subsystem_entry(
 	const ADDIN_ARGV* args;
 	rdpsndWinmmPlugin* winmm;
 
-	if (waveOutGetNumDevs() == 0)
+	if (!freerdp_settings_get_string(freerdp_rdpsnd_get_context(pEntryPoints->rdpsnd)->settings,
+	                                FreeRDP_MyrtilleSessionId) && waveOutGetNumDevs() == 0)
 	{
 		WLog_Print(WLog_Get(TAG), WLOG_ERROR, "No sound playback device available!");
 		return ERROR_DEVICE_NOT_AVAILABLE;

@@ -7,6 +7,10 @@
  * Copyright 2015 DI (FH) Martin Haimberger <martin.haimberger@thincast.com>
  * Copyright 2016 Armin Novak <armin.novak@gmail.com>
  *
+ * Myrtille: A native HTML4/5 Remote Desktop Protocol client
+ *
+ * Copyright(c) 2014-2021 Cedric Coste
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -34,6 +38,7 @@
 #include <winspool.h>
 
 #include <freerdp/client/printer.h>
+#include <freerdp/client.h>
 #include <freerdp/utils/helpers.h>
 
 #define WIDEN_INT(x) L##x
@@ -154,6 +159,13 @@ static void printer_win_close_printjob(rdpPrintJob* printjob)
 	{
 	}
 
+    if (printjob->printer->rdpcontext &&
+        freerdp_settings_get_string(printjob->printer->rdpcontext->settings, FreeRDP_MyrtilleSessionId) &&
+        strcmp(printjob->printer->name, "Myrtille PDF") == 0)
+    {
+        RDP_CLIENT_ENTRY_POINTS* entry = printjob->printer->rdpcontext->instance->pClientEntryPoints;
+        IFCALL(entry->ClientPrint, printjob->printer->rdpcontext, win_printjob->di.pDocName);
+    }
 	win_printer->printjob = nullptr;
 
 	free(win_printjob->di.pDocName);
@@ -174,7 +186,22 @@ static rdpPrintJob* printer_win_create_printjob(rdpPrinter* printer, UINT32 id)
 
 	win_printjob->printjob.id = id;
 	win_printjob->printjob.printer = printer;
-	win_printjob->di.pDocName = printer_win_get_printjob_name(id);
+    if (printer->rdpcontext &&
+        freerdp_settings_get_string(printer->rdpcontext->settings, FreeRDP_MyrtilleSessionId) &&
+        strcmp(printer->name, "Myrtille PDF") == 0)
+    {
+        WCHAR name[96];
+        _snwprintf_s(name, ARRAYSIZE(name), _TRUNCATE, L"FREERDPjob%lu%llu-%u",
+                    GetCurrentProcessId(), GetTickCount64(), id);
+        win_printjob->di.pDocName = _wcsdup(name);
+    }
+    else
+        win_printjob->di.pDocName = printer_win_get_printjob_name(id);
+    if (!win_printjob->di.pDocName)
+    {
+        free(win_printjob);
+        return nullptr;
+    }
 	win_printjob->di.pDatatype = nullptr;
 	win_printjob->di.pOutputFile = nullptr;
 

@@ -65,6 +65,14 @@ extern "C"
 	typedef int (*pRdpClientStart)(rdpContext* context);
 	typedef int (*pRdpClientStop)(rdpContext* context);
 
+	#pragma region Myrtille
+
+	typedef void (*pRdpClientPrint)(rdpContext* context, wchar_t* printJobName);
+	typedef void (*pRdpClientAudio)(rdpContext* context, const BYTE* data, size_t size);
+	typedef void (*pRdpClientVideo)(rdpContext* context, const BYTE* data, size_t size);
+
+	#pragma endregion
+
 	struct rdp_client_entry_points_v1
 	{
 		DWORD Size;
@@ -81,6 +89,9 @@ extern "C"
 
 		WINPR_ATTR_NODISCARD pRdpClientStart ClientStart;
 		pRdpClientStop ClientStop;
+		pRdpClientPrint ClientPrint;
+		pRdpClientAudio ClientAudio;
+		pRdpClientVideo ClientVideo;
 	};
 
 #define RDP_CLIENT_INTERFACE_VERSION 1
